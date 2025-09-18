@@ -1,0 +1,112 @@
+from pydantic import BaseModel, PositiveFloat, ValidationError, field_validator, model_validator
+
+# In-memory storage for bank accounts
+accounts = {}
+next_account_id = 1
+
+class AccountNotFoundError(Exception):
+    pass
+
+class InsufficientFundsError(Exception):
+    pass
+
+class InvalidDataError(Exception):
+    pass
+
+
+class AccountModel(BaseModel):
+    id: int
+    name: str
+    balance: float
+
+    def __init__(self, **data):
+        super().__init__(**data)
+
+    @field_validator("name")
+    @classmethod
+    def name_must_not_be_empty(cls, v):
+        if not v or not v.strip():
+            raise ValueError("Name must be a non-empty string")
+        return v
+
+    @field_validator("balance")
+    @classmethod
+    def balance_must_be_non_negative(cls, v):
+        if v < 0:
+            raise ValueError("Balance cannot be negative")
+        return v
+
+def create_account(raw_data):
+    global next_account_id
+    try:
+        raw_data["id"] = next_account_id
+        account = AccountModel.model_validate(raw_data)
+    except ValidationError as e:
+        raise InvalidDataError(f"Create account failed: {e.errors()}")
+    accounts[next_account_id] = account
+    next_account_id += 1
+    return account.model_dump()
+
+def _get_account(account_id):
+    account = accounts.get(account_id)
+    if not account:
+        raise AccountNotFoundError(f"Account `id={account_id}` not found")
+    return account
+
+def _update_account_balance(account, new_balance):
+    account.balance = new_balance
+    accounts[account.id] = account
+    return account
+
+
+class DepositWithdrawRequest(BaseModel):
+    account_id: int
+    amount: PositiveFloat
+
+def deposit(raw_data):
+    try:
+        data = DepositWithdrawRequest.model_validate(raw_data)
+        account = _get_account(data.account_id)
+        return _update_account_balance(account, account.balance + data.amount).model_dump()
+    except (ValidationError, AccountNotFoundError) as e:
+        raise InvalidDataError(f"Deposit failed: {e.errors()}")
+    
+def withdraw(raw_data):
+    try:
+        data = DepositWithdrawRequest.model_validate(raw_data)
+        account = _get_account(data.account_id)
+        if account.balance < data.amount:
+            raise InsufficientFundsError(f"Withdraw failed `data={data}`: insufficient funds")
+        return _update_account_balance(account, account.balance - data.amount).model_dump()
+    except (ValidationError, AccountNotFoundError) as e:
+        raise InvalidDataError(f"Withdraw failed: {e.errors()}")
+
+
+
+class TransferRequest(BaseModel):
+    from_account_id: int
+    to_account_id: int
+    amount: PositiveFloat
+
+    @model_validator(mode='after')
+    def check_accounts_not_same(self):
+        if self.from_account_id == self.to_account_id:
+            raise ValueError("from_account_id and to_account_id cannot be the same")
+        return self
+    
+def transfer(raw_data):
+    # Must be wrapped in a transaction in a real-world scenario
+
+    try:
+        data = TransferRequest.model_validate(raw_data)
+        from_account = _get_account(data.from_account_id)
+        to_account = _get_account(data.to_account_id)
+    except (ValidationError, AccountNotFoundError) as e:
+        raise InvalidDataError(f"Transfer from `id={data.from_account_id}` to `id={data.to_account_id}` failed: {e}")
+
+    if from_account.balance < data.amount:
+        raise InsufficientFundsError(f"Transfer from `id={from_account.id}` to `id={to_account.id}` failed: insufficient funds")
+
+    from_account.balance -= data.amount
+    to_account.balance += data.amount
+    return from_account.model_dump(), to_account.model_dump()
