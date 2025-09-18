@@ -1,5 +1,4 @@
 import unittest
-from flask import json
 from app import app
 import accounts
 
@@ -160,16 +159,15 @@ class AppTestCase(unittest.TestCase):
         self.assertIn("error", resp.get_json())
 
     def test_unexpected_error(self):
-        # Patch deposit to raise an exception
-        orig_deposit = accounts.deposit
-        def raise_exc(*a, **kw): raise Exception("fail!")
-        accounts.deposit = raise_exc
+        from unittest.mock import patch
+        def side_effect(*a, **kw): raise Exception("fail!")
+
         self.create_account()
         headers = self.get_auth_header()
-        resp = self.client.post("/deposit", json={"account_id": 1, "amount": 10}, headers=headers)
-        self.assertEqual(resp.status_code, 500)
-        self.assertIn("error", resp.get_json())
-        accounts.deposit = orig_deposit
+        with patch("app.deposit", side_effect=side_effect):
+            resp = self.client.post("/deposit", json={"account_id": 1, "amount": 10}, headers=headers)
+            self.assertEqual(resp.status_code, 500)
+            self.assertIn("error", resp.get_json())
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,6 +14,9 @@ class InsufficientFundsError(Exception):
 class InvalidDataError(Exception):
     pass
 
+class AuthenticationError(Exception):
+    pass
+
 
 class AccountModel(BaseModel):
     id: int
@@ -50,10 +53,10 @@ def authenticate(raw_data):
     account_id = accounts_by_name.get(raw_data.get("name"))
     password = raw_data.get("password")
     if account_id is None or password is None:
-        raise InvalidDataError("Authentication failed: account_id and password are required")
+        raise AuthenticationError("Authentication failed: account_id and password are required")
     account = accounts.get(account_id)
     if not account or account.password != password:
-        raise InvalidDataError("Authentication failed: invalid account_id or password")
+        raise AuthenticationError("Authentication failed: invalid account_id or password")
     return account
 
 def create_account(raw_data):
@@ -95,22 +98,28 @@ class DepositWithdrawRequest(BaseModel):
     amount: PositiveFloat
 
 def deposit(raw_data):
+    # Must be wrapped in a transaction in a real-world scenario
     try:
         data = DepositWithdrawRequest.model_validate(raw_data)
         account = _get_account(data.account_id)
         return _update_account_balance(account, account.balance + data.amount).model_dump()
-    except (ValidationError, AccountNotFoundError) as e:
+    except ValidationError as e:
         raise InvalidDataError(f"Deposit failed: {e.errors()}")
+    except AccountNotFoundError as e:
+        raise AccountNotFoundError(f"Deposit failed: {e}")
     
 def withdraw(raw_data):
+    # Must be wrapped in a transaction in a real-world scenario
     try:
         data = DepositWithdrawRequest.model_validate(raw_data)
         account = _get_account(data.account_id)
         if account.balance < data.amount:
             raise InsufficientFundsError(f"Withdraw failed `data={data}`: insufficient funds")
         return _update_account_balance(account, account.balance - data.amount).model_dump()
-    except (ValidationError, AccountNotFoundError) as e:
+    except ValidationError as e:
         raise InvalidDataError(f"Withdraw failed: {e.errors()}")
+    except AccountNotFoundError as e:
+        raise AccountNotFoundError(f"Withdraw failed: {e}")
 
 
 
@@ -122,7 +131,7 @@ class TransferRequest(BaseModel):
     @model_validator(mode='after')
     def check_accounts_not_same(self):
         if self.from_account_id == self.to_account_id:
-            raise ValueError("from_account_id and to_account_id cannot be the same")
+            raise InvalidDataError("from_account_id and to_account_id cannot be the same")
         return self
     
 def transfer(raw_data):
@@ -132,8 +141,10 @@ def transfer(raw_data):
         data = TransferRequest.model_validate(raw_data)
         from_account = _get_account(data.from_account_id)
         to_account = _get_account(data.to_account_id)
-    except (ValidationError, AccountNotFoundError) as e:
-        raise InvalidDataError(f"Transfer from `id={data.from_account_id}` to `id={data.to_account_id}` failed: {e}")
+    except ValidationError as e:
+        raise InvalidDataError(f"Transfer from `id={raw_data.get("from_account_id")}` to `id={raw_data.get("to_account_id")}` failed: {e.errors()}")
+    except AccountNotFoundError as e:
+        raise AccountNotFoundError(f"Transfer from `id={data.from_account_id}` to `id={data.to_account_id}` failed: {e}")
 
     if from_account.balance < data.amount:
         raise InsufficientFundsError(f"Transfer from `id={from_account.id}` to `id={to_account.id}` failed: insufficient funds")

@@ -1,9 +1,10 @@
 from flask import Flask, jsonify, request
 from flask_restful import Resource, Api
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required
+from flask_jwt_extended.exceptions import NoAuthorizationError, InvalidHeaderError, WrongTokenError, RevokedTokenError, FreshTokenRequired, CSRFError
 from accounts import (
-    authenticate, create_account, deposit, transfer,
-    AccountNotFoundError, InsufficientFundsError, InvalidDataError, withdraw
+    authenticate, create_account, deposit, transfer, withdraw,
+    AccountNotFoundError, InsufficientFundsError, InvalidDataError, AuthenticationError
 )
 import logging
 from datetime import datetime
@@ -12,8 +13,34 @@ from datetime import datetime
 app = Flask(__name__)
 app.config["JWT_SECRET_KEY"] = "super-secret-key"  # Should be an environment variable in production
 
+  
+class CustomApi(Api):
+    def handle_error(self, e):
+        if isinstance(e, InvalidDataError):
+            error_logger.error(f"Invalid data: {e}")
+            return jsonify({"error": "Invalid request data"}), 400
+        
+        if isinstance(e, InsufficientFundsError):
+            error_logger.error(f"Insufficient funds: {e}")
+            return jsonify({"error": "Insufficient funds"}), 400
+        
+        if isinstance(e, AccountNotFoundError):
+            error_logger.error(f"Account not found: {e}")
+            return jsonify({"error": "Account not found"}), 404
 
-api = Api(app)
+        if isinstance(e, AuthenticationError):
+            error_logger.error(f"Authentication error: {e}")
+            return jsonify({"error": "Authentication failed"}), 401
+        
+        if isinstance(e, (NoAuthorizationError, InvalidHeaderError, WrongTokenError, RevokedTokenError, FreshTokenRequired, CSRFError)):
+            error_logger.error(f"JWT error: {e}")
+            return jsonify({"error": "Missing or invalid Authorization Header"}), 401
+        
+        error_logger.error(f"Unexpected error: {e}")
+        return jsonify({"error": "An unexpected error occurred"}), 500
+
+
+api = CustomApi(app)
 jwt = JWTManager(app)
 
 
@@ -33,30 +60,6 @@ error_file_handler = logging.FileHandler("errors.log")
 error_file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 if not error_logger.hasHandlers():
     error_logger.addHandler(error_file_handler)
-
-
-@app.errorhandler(AccountNotFoundError)
-def handle_account_not_found(error):
-    error_logger.error(f"Account not found: {error}")
-    return jsonify({"error": "Account not found"}), 404
-
-
-@app.errorhandler(InsufficientFundsError)
-def handle_insufficient_funds(error):
-    error_logger.error(f"Insufficient funds: {error}")
-    return jsonify({"error": "Insufficient funds"}), 400
-
-
-@app.errorhandler(InvalidDataError)
-def handle_invalid_account_data(error):
-    error_logger.error(f"Invalid data: {error}")
-    return jsonify({"error": "Invalid request data"}), 400
-
-
-@app.errorhandler(Exception)
-def handle_unexpected_error(error):
-    error_logger.error(f"Unexpected error: {error}")
-    return jsonify({"error": "An internal error occurred"}), 500
 
 
 class LoginResource(Resource):
