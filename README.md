@@ -42,13 +42,3 @@ python app.py
 ```
 
 The application will start, and you can access it at `http://127.0.0.1:5000`.
-
-## Healthcheck Endpoint
-
-- **GET /ping**: Returns a JSON response with the status of the application.
-  - Response:
-    ```json
-    {
-      "status": "ok"
-    }
-    ```
