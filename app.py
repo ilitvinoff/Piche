@@ -35,8 +35,11 @@ class CustomApi(Api):
         if isinstance(e, (NoAuthorizationError, InvalidHeaderError, WrongTokenError, RevokedTokenError, FreshTokenRequired, CSRFError)):
             error_logger.error(f"JWT error: {e}")
             return jsonify({"error": "Missing or invalid Authorization Header"}), 401
-        
+
         error_logger.error(f"Unexpected error: {e}")
+        if hasattr(e, 'code') and e.code in (400, 401, 403, 404, 500):
+            return super().handle_error(e)
+        
         return jsonify({"error": "An unexpected error occurred"}), 500
 
 
@@ -109,7 +112,3 @@ api.add_resource(CreateAccountResource, '/create_account')
 api.add_resource(DepositResource, '/deposit')
 api.add_resource(WithdrawResource, '/withdraw')
 api.add_resource(TransferResource, '/transfer')
-
-
-if __name__ == '__main__':
-    app.run(debug=True)
