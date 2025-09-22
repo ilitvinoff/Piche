@@ -112,3 +112,9 @@ api.add_resource(CreateAccountResource, '/create_account')
 api.add_resource(DepositResource, '/deposit')
 api.add_resource(WithdrawResource, '/withdraw')
 api.add_resource(TransferResource, '/transfer')
+
+# Run the application if this script is executed directly.
+if __name__ == "__main__":
+    # In debug mode, the server reloads automatically on code changes
+    # and provides a debugger in the browser.
+    app.run(debug=True)
